@@ -85,6 +85,12 @@ The custom settings relay payload size is
 source and encoded payload size. Larger keys, setting values, or metadata-heavy
 list responses may need a larger BLE MTU and split relay event data size.
 
+Public RPC source selection is resolved on the central side. A request selected
+for relay is normalized to the receiving peripheral's local registry; the relay
+payload does not carry `SOURCE_ALL`. The relay event's 8-bit `source` field is
+transport metadata used by ZMK for loop prevention and notification origin, not
+the public Custom Settings source value.
+
 ### Register Settings
 
 Register a setting from another module:

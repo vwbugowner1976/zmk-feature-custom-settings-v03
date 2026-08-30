@@ -31,3 +31,4 @@ PASS: custom_settings_record_constraint_rejected
 PASS: custom_settings_record_schema_evolution speed=42 label=kept
 PASS: custom_settings_chunked_rpc rpc=030201->090807 internal=070809
 PASS: custom_settings_rpc_bytes_handler rpc=030201 internal=070809
+PASS: custom_settings_split_central_source_all normalized=local payload=7

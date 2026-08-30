@@ -7,7 +7,8 @@ import "cormoran/zmk/custom_settings/custom_settings.proto";
 message RelaySettingRef {
     optional string custom_subsystem_id = 1;
     optional string key = 2;
-    // Omitted source means local side only. UINT32_MAX means all split sides.
+    // Relayed requests execute locally on the receiving peripheral. New senders
+    // omit this field; it remains for wire compatibility with older firmware.
     optional uint32 source = 3;
     optional uint32 array_index = 4;
 }
@@ -16,7 +17,8 @@ message RelaySettingScope {
     optional string custom_subsystem_id = 1;
     optional string key = 2;
     optional string key_prefix = 3;
-    // Omitted source means local side only. UINT32_MAX means all split sides.
+    // Relayed requests execute locally on the receiving peripheral. New senders
+    // omit this field; it remains for wire compatibility with older firmware.
     optional uint32 source = 4;
 }
 

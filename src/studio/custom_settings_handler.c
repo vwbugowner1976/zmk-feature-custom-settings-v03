@@ -1677,12 +1677,13 @@ static int public_ref_to_relay(const cormoran_zmk_custom_settings_SettingRef *sr
         dest->has_key = true;
         copy_string(dest->key, sizeof(dest->key), src->key);
     }
-    if (src->has_source) {
-        dest->has_source = true;
-        dest->source = src->source == ZMK_CUSTOM_SETTING_SOURCE_ALL
-                           ? ZMK_CUSTOM_SETTING_SOURCE_ALL
-                           : ZMK_CUSTOM_SETTING_SOURCE_LOCAL;
-    }
+    /* The central already decided that this request targets peripherals. Once
+     * received, the
+     * request must operate on that peripheral's local registry.
+     * Leave source omitted so the
+     * relay-side default is LOCAL instead of
+     * carrying SOURCE_ALL through a second addressing
+     * domain. */
     if (src->has_array_index) {
         dest->has_array_index = true;
         dest->array_index = src->array_index;
@@ -1712,12 +1713,7 @@ static int public_scope_to_relay(const cormoran_zmk_custom_settings_SettingScope
         dest->has_key_prefix = true;
         copy_string(dest->key_prefix, sizeof(dest->key_prefix), src->key_prefix);
     }
-    if (src->has_source) {
-        dest->has_source = true;
-        dest->source = src->source == ZMK_CUSTOM_SETTING_SOURCE_ALL
-                           ? ZMK_CUSTOM_SETTING_SOURCE_ALL
-                           : ZMK_CUSTOM_SETTING_SOURCE_LOCAL;
-    }
+    /* See public_ref_to_relay(): relayed scopes are local to each receiver. */
 
     return 0;
 }
@@ -2369,6 +2365,67 @@ static int custom_settings_chunked_rpc_test_init(void) {
 }
 
 SYS_INIT(custom_settings_chunked_rpc_test_init, APPLICATION, 99);
+#endif
+
+#if IS_ENABLED(CONFIG_ZMK_CUSTOM_SETTINGS_TEST) &&                                                 \
+    IS_ENABLED(CONFIG_ZMK_CUSTOM_SETTINGS_SPLIT_RPC_RELAY) &&                                      \
+    IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL) && ZMK_CUSTOM_SETTINGS_LOCAL_STUDIO_RPC
+static int custom_settings_split_central_source_test_init(void) {
+    /* Exact 13-byte request emitted by My ZMK Studio for:
+     * list_settings(key_prefix="c",
+     * source=UINT32_MAX, require_meta=false). */
+    static const uint8_t public_request[] = {0x0a, 0x0b, 0x0a, 0x09, 0x1a, 0x01, 0x63,
+                                             0x20, 0xff, 0xff, 0xff, 0xff, 0x0f};
+    static cormoran_zmk_custom_settings_Request request;
+    request = (cormoran_zmk_custom_settings_Request)cormoran_zmk_custom_settings_Request_init_zero;
+
+    pb_istream_t public_stream = pb_istream_from_buffer(public_request, sizeof(public_request));
+    if (!pb_decode(&public_stream, cormoran_zmk_custom_settings_Request_fields, &request)) {
+        LOG_ERR("Split central source test public decode failed: %s", PB_GET_ERROR(&public_stream));
+        return -EIO;
+    }
+    if (request.which_request_type != cormoran_zmk_custom_settings_Request_list_settings_tag ||
+        !request.request_type.list_settings.has_scope ||
+        !request.request_type.list_settings.scope.has_source ||
+        request.request_type.list_settings.scope.source != ZMK_CUSTOM_SETTING_SOURCE_ALL) {
+        LOG_ERR("Split central source test did not decode SOURCE_ALL");
+        return -EINVAL;
+    }
+
+    struct zmk_custom_settings_relay_request relay_request;
+    int ret = request_to_relay_request(&request, &relay_request);
+    if (ret < 0) {
+        LOG_ERR("Split central source test conversion failed: %d", ret);
+        return ret;
+    }
+
+    static cormoran_zmk_custom_settings_RelayRequest decoded_relay;
+    decoded_relay = (cormoran_zmk_custom_settings_RelayRequest)
+        cormoran_zmk_custom_settings_RelayRequest_init_zero;
+    pb_istream_t relay_stream =
+        pb_istream_from_buffer(relay_request.payload, relay_request.payload_size);
+    if (!pb_decode(&relay_stream, cormoran_zmk_custom_settings_RelayRequest_fields,
+                   &decoded_relay)) {
+        LOG_ERR("Split central source test relay decode failed: %s", PB_GET_ERROR(&relay_stream));
+        return -EIO;
+    }
+
+    if (relay_request.source != ZMK_RELAY_EVENT_SOURCE_SELF || relay_request.payload_size != 7 ||
+        decoded_relay.which_request_type !=
+            cormoran_zmk_custom_settings_RelayRequest_list_settings_tag ||
+        !decoded_relay.request_type.list_settings.has_scope ||
+        decoded_relay.request_type.list_settings.scope.has_source ||
+        !decoded_relay.request_type.list_settings.scope.has_key_prefix ||
+        strcmp(decoded_relay.request_type.list_settings.scope.key_prefix, "c") != 0) {
+        LOG_ERR("Split central source test did not normalize relay scope to local");
+        return -EINVAL;
+    }
+
+    printk("PASS: custom_settings_split_central_source_all normalized=local payload=7\n");
+    return 0;
+}
+
+SYS_INIT(custom_settings_split_central_source_test_init, APPLICATION, 99);
 #endif
 
 #if IS_ENABLED(CONFIG_ZMK_CUSTOM_SETTINGS_SPLIT_RPC_RELAY)
