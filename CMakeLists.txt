@@ -35,3 +35,7 @@ if(CONFIG_ZMK_CUSTOM_SETTINGS)
         add_dependencies(app ${ZEPHYR_CURRENT_LIBRARY})
     endif()
 endif()
+
+if(CONFIG_ZMK_CORNE_LIGHTING)
+    target_sources(app PRIVATE src/features/corne_lighting.c)
+endif()
