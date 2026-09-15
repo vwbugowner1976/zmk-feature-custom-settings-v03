@@ -142,3 +142,14 @@ config ZMK_CUSTOM_SETTINGS_ZMK_CONFIG_SAMPLES
     bool "Enable custom settings samples for tests/zmk-config"
 
 endif
+
+config ZMK_CORNE_LIGHTING
+    bool "Enable Corne firefly and status lighting"
+    depends on LED_STRIP
+    select ZMK_LOW_PRIORITY_WORK_QUEUE
+    help
+      Drives the chosen rear LED strip with an ambient firefly animation and
+      temporary layer/Bluetooth profile status colors. When Custom Settings and
+      Studio RPC are enabled on the split central, the lighting parameters are
+      editable at runtime from My ZMK Studio. Split relay support mirrors the
+      state to the peripheral half.
