@@ -1,18 +1,18 @@
 /*
- * Corne v2 front-LED diagnostic for ZMK v0.3 + DYA.
+ * Corne v2 all-LED diagnostic for ZMK v0.3 + DYA.
  *
  * Corne v2 LED order:
  *   1..6   = rear underglow
  *   7..27  = front/per-key backlight
  *
- * This diagnostic keeps LEDs 1..6 off and walks LEDs 7..27 one at a time.
- * Each LED is shown red, then green, then blue so all three channels can be
- * checked as well as daisy-chain continuity.
+ * This diagnostic lights the entire configured LED chain at once with a
+ * low-brightness white. Using a conservative level keeps USB current modest
+ * while making daisy-chain continuity easy to inspect: every LED that can
+ * receive data should remain visibly lit.
  */
 
 #include <stddef.h>
 #include <stdint.h>
-#include <string.h>
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/led_strip.h>
@@ -28,58 +28,23 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #define STRIP_NODE DT_CHOSEN(zmk_underglow)
 #define LED_COUNT DT_PROP(STRIP_NODE, chain_length)
-#define FRONT_FIRST_INDEX 6U /* zero-based index: LED 7 */
-#define TEST_STEP_MS 350
+#define TEST_LEVEL 32U
 #define START_DELAY_MS 800
 
 static const struct device *const strip = DEVICE_DT_GET(STRIP_NODE);
 static struct led_rgb pixels[LED_COUNT];
-static struct k_work_delayable test_work;
 static struct k_work_delayable startup_work;
-static size_t current_index = FRONT_FIRST_INDEX;
-static uint8_t channel;
 
-static void clear_pixels(void) { memset(pixels, 0, sizeof(pixels)); }
+static void fill_all_leds(void) {
+    const struct led_rgb white = {
+        .r = TEST_LEVEL,
+        .g = TEST_LEVEL,
+        .b = TEST_LEVEL,
+    };
 
-static void set_test_color(struct led_rgb *pixel, uint8_t ch) {
-    *pixel = (struct led_rgb){0};
-    switch (ch) {
-    case 0:
-        pixel->r = 255;
-        break;
-    case 1:
-        pixel->g = 255;
-        break;
-    default:
-        pixel->b = 255;
-        break;
+    for (size_t i = 0; i < LED_COUNT; i++) {
+        pixels[i] = white;
     }
-}
-
-static void test_work_handler(struct k_work *work) {
-    ARG_UNUSED(work);
-
-    clear_pixels();
-
-    if (LED_COUNT > FRONT_FIRST_INDEX) {
-        set_test_color(&pixels[current_index], channel);
-    }
-
-    int rc = led_strip_update_rgb(strip, pixels, LED_COUNT);
-    if (rc < 0) {
-        LOG_WRN("Corne LED test strip update failed: %d", rc);
-    }
-
-    channel++;
-    if (channel >= 3U) {
-        channel = 0U;
-        current_index++;
-        if (current_index >= LED_COUNT) {
-            current_index = FRONT_FIRST_INDEX;
-        }
-    }
-
-    k_work_reschedule(&test_work, K_MSEC(TEST_STEP_MS));
 }
 
 static void startup_handler(struct k_work *work) {
@@ -90,13 +55,17 @@ static void startup_handler(struct k_work *work) {
         return;
     }
 
-    clear_pixels();
-    (void)led_strip_update_rgb(strip, pixels, LED_COUNT);
-    k_work_reschedule(&test_work, K_NO_WAIT);
+    fill_all_leds();
+    int rc = led_strip_update_rgb(strip, pixels, LED_COUNT);
+    if (rc < 0) {
+        LOG_ERR("Corne LED test strip update failed: %d", rc);
+    } else {
+        LOG_INF("Corne LED test: %u LEDs lit at level %u", (unsigned int)LED_COUNT,
+                (unsigned int)TEST_LEVEL);
+    }
 }
 
 static int corne_lighting_led_test_init(void) {
-    k_work_init_delayable(&test_work, test_work_handler);
     k_work_init_delayable(&startup_work, startup_handler);
     k_work_reschedule(&startup_work, K_MSEC(START_DELAY_MS));
     return 0;
