@@ -153,3 +153,11 @@ config ZMK_CORNE_LIGHTING
       Studio RPC are enabled on the split central, the lighting parameters are
       editable at runtime from My ZMK Studio. Split relay support mirrors the
       state to the peripheral half.
+
+config ZMK_CORNE_LIGHTING_LED_TEST
+    bool "Enable Corne front LED diagnostic"
+    depends on ZMK_CORNE_LIGHTING
+    help
+      Replaces the normal lighting engine with a front/per-key LED diagnostic.
+      Corne v2 LEDs 1..6 (underglow) stay off. LEDs 7..27 are tested one at a
+      time, cycling red, green, and blue on each LED before moving to the next.
