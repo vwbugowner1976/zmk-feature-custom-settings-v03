@@ -2,8 +2,8 @@
  * Corne lighting central/controller for ZMK v0.3 + DYA Studio extensions.
  *
  * Runtime settings live on the split central. Rendering is shared with the
- * peripheral through corne_lighting_common.h and configuration/state is
- * mirrored with the DYA split relay event.
+ * peripheral through corne_lighting_common.h. Split synchronization uses a
+ * compact 8-byte relay event so it remains reliable on the BLE split link.
  */
 
 #include <errno.h>
@@ -17,6 +17,7 @@
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #include "corne_lighting_common.h"
+#include "corne_lighting_relay.h"
 
 #include <zmk/event_manager.h>
 #include <zmk/events/ble_active_profile_changed.h>
@@ -37,6 +38,8 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #endif
 
 #define LIGHTING_SUBSYSTEM "corne_lighting"
+#define CONFIG_SYNC_STEP_MS 40
+#define PERIODIC_SYNC_SEC 10
 
 #if IS_ENABLED(CONFIG_ZMK_CUSTOM_SETTINGS)
 #define PUBLIC ZMK_CUSTOM_SETTING_CONFIDENTIALITY_RPC_PUBLIC
@@ -136,30 +139,52 @@ static void load_settings(void) {
 #endif
 
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_RELAY_EVENT)
-struct corne_lighting_relay {
-    uint8_t source;
-    uint8_t version;
-    uint8_t kind; /* 0 sync/settings, 1 layer, 2 bluetooth */
-    uint8_t active_layer;
-    uint8_t active_bt_profile;
-    struct corne_lighting_config config;
-} __packed;
-
 ZMK_EVENT_DECLARE(corne_lighting_relay);
 ZMK_EVENT_IMPL(corne_lighting_relay);
 ZMK_RELAY_EVENT_CENTRAL_TO_PERIPHERAL(corne_lighting_relay, clr, source)
 ZMK_RELAY_EVENT_HANDLE(corne_lighting_relay, clr, source)
 
-static void send_relay(uint8_t kind) {
+static void send_relay(uint8_t kind, uint8_t id, uint32_t value) {
     struct corne_lighting_relay ev = {
         .source = ZMK_RELAY_EVENT_SOURCE_SELF,
-        .version = CORNE_LIGHTING_RELAY_VERSION,
+        .version = CORNE_LIGHTING_RELAY_PROTOCOL_VERSION,
         .kind = kind,
-        .active_layer = corne_active_layer,
-        .active_bt_profile = corne_active_bt_profile,
-        .config = corne_lighting_cfg,
+        .id = id,
+        .value = value,
     };
     raise_corne_lighting_relay(ev);
+}
+
+static struct k_work_delayable config_sync_work;
+static struct k_work_delayable periodic_sync_work;
+static uint8_t config_sync_id;
+
+static void start_config_sync(void) {
+    config_sync_id = 0U;
+    k_work_reschedule(&config_sync_work, K_NO_WAIT);
+}
+
+static void config_sync_handler(struct k_work *work) {
+    ARG_UNUSED(work);
+
+    if (config_sync_id < CORNE_CFG_COUNT) {
+        uint8_t id = config_sync_id++;
+        send_relay(CORNE_LIGHTING_RELAY_KIND_CONFIG, id, corne_lighting_config_value(id));
+        k_work_reschedule(&config_sync_work, K_MSEC(CONFIG_SYNC_STEP_MS));
+        return;
+    }
+
+    /* End every snapshot with the current layer so the peripheral converges
+     * even if it connected after the original layer event was emitted. */
+    send_relay(CORNE_LIGHTING_RELAY_KIND_LAYER, corne_active_layer, 0U);
+}
+
+static void periodic_sync_handler(struct k_work *work) {
+    ARG_UNUSED(work);
+    if (corne_lighting_initialized) {
+        start_config_sync();
+    }
+    k_work_reschedule(&periodic_sync_work, K_SECONDS(PERIODIC_SYNC_SEC));
 }
 #endif
 
@@ -190,7 +215,7 @@ static int layer_listener(const zmk_event_t *eh) {
         corne_layer_flash_until = k_uptime_get() + corne_lighting_cfg.layer_duration_ms;
     }
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_RELAY_EVENT)
-    send_relay(1);
+    send_relay(CORNE_LIGHTING_RELAY_KIND_LAYER, corne_active_layer, 0U);
 #endif
     return ZMK_EV_EVENT_BUBBLE;
 }
@@ -207,7 +232,7 @@ static int bt_listener(const zmk_event_t *eh) {
     corne_bt_started = k_uptime_get();
     corne_bt_until = corne_bt_started + corne_lighting_cfg.bt_duration_ms;
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_RELAY_EVENT)
-    send_relay(2);
+    send_relay(CORNE_LIGHTING_RELAY_KIND_BLUETOOTH, corne_active_bt_profile, 0U);
 #endif
     return ZMK_EV_EVENT_BUBBLE;
 }
@@ -226,25 +251,19 @@ static int setting_listener(const zmk_event_t *eh) {
     if (previous_effect != corne_lighting_cfg.ambient_effect) {
         corne_reset_ambient_state();
     }
+
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_RELAY_EVENT)
-    send_relay(0);
+    uint8_t id = corne_lighting_config_id_from_key(ev->setting->key);
+    if (id < CORNE_CFG_COUNT) {
+        send_relay(CORNE_LIGHTING_RELAY_KIND_CONFIG, id, corne_lighting_config_value(id));
+    } else {
+        start_config_sync();
+    }
 #endif
     return ZMK_EV_EVENT_BUBBLE;
 }
 ZMK_LISTENER(corne_lighting_setting_listener, setting_listener);
 ZMK_SUBSCRIPTION(corne_lighting_setting_listener, zmk_custom_setting_changed);
-#endif
-
-#if IS_ENABLED(CONFIG_ZMK_SPLIT_RELAY_EVENT)
-static struct k_work_delayable periodic_sync_work;
-
-static void periodic_sync_handler(struct k_work *work) {
-    ARG_UNUSED(work);
-    if (corne_lighting_initialized) {
-        send_relay(0);
-    }
-    k_work_reschedule(&periodic_sync_work, K_SECONDS(5));
-}
 #endif
 
 static void startup_handler(struct k_work *work) {
@@ -262,8 +281,8 @@ static void startup_handler(struct k_work *work) {
     corne_lighting_initialized = true;
 
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_RELAY_EVENT)
-    send_relay(0);
-    k_work_reschedule(&periodic_sync_work, K_SECONDS(5));
+    start_config_sync();
+    k_work_reschedule(&periodic_sync_work, K_SECONDS(PERIODIC_SYNC_SEC));
 #endif
     k_work_reschedule(&corne_render_work, K_NO_WAIT);
 }
@@ -273,6 +292,7 @@ static int corne_lighting_init(void) {
     k_work_init_delayable(&corne_render_work, corne_render_work_handler);
     k_work_init_delayable(&corne_startup_work, startup_handler);
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_RELAY_EVENT)
+    k_work_init_delayable(&config_sync_work, config_sync_handler);
     k_work_init_delayable(&periodic_sync_work, periodic_sync_handler);
 #endif
     k_work_reschedule(&corne_startup_work, K_MSEC(800));
