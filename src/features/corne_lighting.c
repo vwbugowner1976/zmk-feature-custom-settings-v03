@@ -77,10 +77,11 @@ INT_SETTING(corne_led_layer_mode, "layer_mode", 0, 0, 1);
 INT_SETTING(corne_led_layer_duration, "layer_duration_ms", 500, 100, 3000);
 INT_SETTING(corne_led_layer_brightness, "layer_brightness", 35, 1, 100);
 
-#define DEFINE_CORNE_LAYER_COLOR_SETTING(idx, _)                                                   \
-    INT_SETTING(UTIL_CAT(corne_led_layer_color_, idx), "layer_color_" STRINGIFY(idx),              \
-                CORNE_LAYER_COLOR_DEFAULT(idx), 0, 0xFFFFFF)
-LISTIFY(CORNE_LIGHTING_LAYER_COUNT, DEFINE_CORNE_LAYER_COLOR_SETTING, (;), _);
+#define DEFINE_CORNE_LAYER_COLOR_SETTING(node)                                                     \
+    INT_SETTING(UTIL_CAT(corne_led_layer_color_, DT_NODE_CHILD_IDX(node)),                         \
+                "layer_color_" STRINGIFY(DT_NODE_CHILD_IDX(node)),                                \
+                CORNE_LAYER_COLOR_DEFAULT(DT_NODE_CHILD_IDX(node)), 0, 0xFFFFFF);
+DT_FOREACH_CHILD(DT_INST(0, zmk_keymap), DEFINE_CORNE_LAYER_COLOR_SETTING)
 #undef DEFINE_CORNE_LAYER_COLOR_SETTING
 
 BOOL_SETTING(corne_led_bt_enabled, "bt_enabled", true);
