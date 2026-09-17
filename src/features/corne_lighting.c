@@ -41,6 +41,8 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define CONFIG_SYNC_STEP_MS 40
 #define PERIODIC_SYNC_SEC 10
 
+BUILD_ASSERT(CORNE_LIGHTING_LAYER_COUNT <= 32, "Corne Lighting supports up to 32 keymap layers");
+
 #if IS_ENABLED(CONFIG_ZMK_CUSTOM_SETTINGS)
 #define PUBLIC ZMK_CUSTOM_SETTING_CONFIDENTIALITY_RPC_PUBLIC
 #define RW ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE
@@ -52,6 +54,13 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
     ZMK_CUSTOM_SETTING_DEFINE(name, LIGHTING_SUBSYSTEM, key, ZMK_CUSTOM_SETTING_VALUE_TYPE_BOOL,   \
                               ZMK_CUSTOM_SETTING_VALUE_BOOL(def), PUBLIC, RW, RW,                   \
                               ZMK_CUSTOM_SETTING_NO_CONSTRAINT)
+
+#define CORNE_LAYER_COLOR_DEFAULT(idx)                                                              \
+    (((idx) % 6U) == 0U ? 0x70FF70 :                                                               \
+     ((idx) % 6U) == 1U ? 0x4080FF :                                                               \
+     ((idx) % 6U) == 2U ? 0xA050FF :                                                               \
+     ((idx) % 6U) == 3U ? 0xFF9D30 :                                                               \
+     ((idx) % 6U) == 4U ? 0xFF50A8 : 0x40DFFF)
 
 BOOL_SETTING(corne_led_enabled, "enabled", true);
 INT_SETTING(corne_led_ambient_effect, "ambient_effect", CORNE_AMBIENT_FIREFLY, 0, 4);
@@ -67,12 +76,12 @@ BOOL_SETTING(corne_led_layer_enabled, "layer_enabled", true);
 INT_SETTING(corne_led_layer_mode, "layer_mode", 0, 0, 1);
 INT_SETTING(corne_led_layer_duration, "layer_duration_ms", 500, 100, 3000);
 INT_SETTING(corne_led_layer_brightness, "layer_brightness", 35, 1, 100);
-INT_SETTING(corne_led_layer_color_0, "layer_color_0", 0x70FF70, 0, 0xFFFFFF);
-INT_SETTING(corne_led_layer_color_1, "layer_color_1", 0x4080FF, 0, 0xFFFFFF);
-INT_SETTING(corne_led_layer_color_2, "layer_color_2", 0xA050FF, 0, 0xFFFFFF);
-INT_SETTING(corne_led_layer_color_3, "layer_color_3", 0xFF9D30, 0, 0xFFFFFF);
-INT_SETTING(corne_led_layer_color_4, "layer_color_4", 0xFF50A8, 0, 0xFFFFFF);
-INT_SETTING(corne_led_layer_color_5, "layer_color_5", 0x40DFFF, 0, 0xFFFFFF);
+
+#define DEFINE_CORNE_LAYER_COLOR_SETTING(idx, _)                                                   \
+    INT_SETTING(UTIL_CAT(corne_led_layer_color_, idx), "layer_color_" STRINGIFY(idx),              \
+                CORNE_LAYER_COLOR_DEFAULT(idx), 0, 0xFFFFFF)
+LISTIFY(CORNE_LIGHTING_LAYER_COUNT, DEFINE_CORNE_LAYER_COLOR_SETTING, (;), _);
+#undef DEFINE_CORNE_LAYER_COLOR_SETTING
 
 BOOL_SETTING(corne_led_bt_enabled, "bt_enabled", true);
 INT_SETTING(corne_led_bt_duration, "bt_duration_ms", 800, 100, 3000);
@@ -120,9 +129,9 @@ static void load_settings(void) {
     if (read_int("layer_mode", &v) == 0) corne_lighting_cfg.layer_mode = (uint8_t)v;
     if (read_int("layer_duration_ms", &v) == 0) corne_lighting_cfg.layer_duration_ms = (uint16_t)v;
     if (read_int("layer_brightness", &v) == 0) corne_lighting_cfg.layer_brightness = (uint8_t)v;
-    for (int i = 0; i < 6; i++) {
-        char key[20];
-        snprintk(key, sizeof(key), "layer_color_%d", i);
+    for (uint8_t i = 0; i < CORNE_LIGHTING_LAYER_COUNT; i++) {
+        char key[24];
+        snprintk(key, sizeof(key), "layer_color_%u", (unsigned int)i);
         if (read_int(key, &v) == 0) corne_lighting_cfg.layer_colors[i] = (uint32_t)v;
     }
 
