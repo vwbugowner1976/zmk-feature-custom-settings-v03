@@ -16,6 +16,8 @@
 #include <zephyr/random/random.h>
 #include <zephyr/sys/util.h>
 
+#include <zmk/keymap.h>
+
 #include <zephyr/logging/log.h>
 
 #if !DT_HAS_CHOSEN(zmk_underglow)
@@ -26,6 +28,7 @@
 #define CORNE_LIGHTING_LED_COUNT DT_PROP(CORNE_LIGHTING_STRIP_NODE, chain_length)
 #define CORNE_LIGHTING_TICK_MS 40
 #define CORNE_LIGHTING_RELAY_VERSION 2
+#define CORNE_LIGHTING_LAYER_COUNT ZMK_KEYMAP_LAYERS_LEN
 
 #define CORNE_AMBIENT_FIREFLY 0
 #define CORNE_AMBIENT_BREATHING 1
@@ -48,7 +51,7 @@ struct corne_lighting_config {
     uint8_t layer_mode; /* 0 = while active, 1 = flash on change */
     uint16_t layer_duration_ms;
     uint8_t layer_brightness;
-    uint32_t layer_colors[6];
+    uint32_t layer_colors[CORNE_LIGHTING_LAYER_COUNT];
 
     bool bt_enabled;
     uint16_t bt_duration_ms;
@@ -379,6 +382,10 @@ static void corne_render_work_handler(struct k_work *work) {
 }
 
 static void corne_lighting_set_defaults(void) {
+    static const uint32_t layer_palette[] = {
+        0x70FF70, 0x4080FF, 0xA050FF, 0xFF9D30, 0xFF50A8, 0x40DFFF,
+    };
+
     corne_lighting_cfg = (struct corne_lighting_config){
         .enabled = true,
         .ambient_effect = CORNE_AMBIENT_FIREFLY,
@@ -393,11 +400,14 @@ static void corne_lighting_set_defaults(void) {
         .layer_mode = 0,
         .layer_duration_ms = 500,
         .layer_brightness = 35,
-        .layer_colors = {0x70FF70, 0x4080FF, 0xA050FF, 0xFF9D30, 0xFF50A8, 0x40DFFF},
         .bt_enabled = true,
         .bt_duration_ms = 800,
         .bt_effect = 1,
         .bt_brightness = 40,
         .bt_colors = {0x3090FF, 0x40E070, 0xFFD040, 0xA060FF, 0xFF5040},
     };
+
+    for (size_t i = 0; i < ARRAY_SIZE(corne_lighting_cfg.layer_colors); i++) {
+        corne_lighting_cfg.layer_colors[i] = layer_palette[i % ARRAY_SIZE(layer_palette)];
+    }
 }
