@@ -11,13 +11,13 @@
 #include <stdint.h>
 #include <string.h>
 
-#define CORNE_LIGHTING_RELAY_PROTOCOL_VERSION 3U
+#define CORNE_LIGHTING_RELAY_PROTOCOL_VERSION 4U
 
 #define CORNE_LIGHTING_RELAY_KIND_CONFIG 0U
 #define CORNE_LIGHTING_RELAY_KIND_LAYER 1U
 #define CORNE_LIGHTING_RELAY_KIND_BLUETOOTH 2U
 
-enum corne_lighting_config_id {
+enum corne_lighting_config_base_id {
     CORNE_CFG_ENABLED = 0,
     CORNE_CFG_AMBIENT_EFFECT,
     CORNE_CFG_AMBIENT_COLOR,
@@ -31,23 +31,15 @@ enum corne_lighting_config_id {
     CORNE_CFG_LAYER_MODE,
     CORNE_CFG_LAYER_DURATION_MS,
     CORNE_CFG_LAYER_BRIGHTNESS,
-    CORNE_CFG_LAYER_COLOR_0,
-    CORNE_CFG_LAYER_COLOR_1,
-    CORNE_CFG_LAYER_COLOR_2,
-    CORNE_CFG_LAYER_COLOR_3,
-    CORNE_CFG_LAYER_COLOR_4,
-    CORNE_CFG_LAYER_COLOR_5,
-    CORNE_CFG_BT_ENABLED,
-    CORNE_CFG_BT_DURATION_MS,
-    CORNE_CFG_BT_EFFECT,
-    CORNE_CFG_BT_BRIGHTNESS,
-    CORNE_CFG_BT_COLOR_0,
-    CORNE_CFG_BT_COLOR_1,
-    CORNE_CFG_BT_COLOR_2,
-    CORNE_CFG_BT_COLOR_3,
-    CORNE_CFG_BT_COLOR_4,
-    CORNE_CFG_COUNT,
 };
+
+#define CORNE_CFG_LAYER_COLOR_BASE 13U
+#define CORNE_CFG_BT_ENABLED (CORNE_CFG_LAYER_COLOR_BASE + CORNE_LIGHTING_LAYER_COUNT)
+#define CORNE_CFG_BT_DURATION_MS (CORNE_CFG_BT_ENABLED + 1U)
+#define CORNE_CFG_BT_EFFECT (CORNE_CFG_BT_ENABLED + 2U)
+#define CORNE_CFG_BT_BRIGHTNESS (CORNE_CFG_BT_ENABLED + 3U)
+#define CORNE_CFG_BT_COLOR_BASE (CORNE_CFG_BT_ENABLED + 4U)
+#define CORNE_CFG_COUNT (CORNE_CFG_BT_COLOR_BASE + 5U)
 
 struct corne_lighting_relay {
     uint8_t source;
@@ -57,12 +49,21 @@ struct corne_lighting_relay {
     uint32_t value;
 } __packed;
 
+static inline bool corne_lighting_id_is_layer_color(uint8_t id) {
+    return id >= CORNE_CFG_LAYER_COLOR_BASE &&
+           id < (CORNE_CFG_LAYER_COLOR_BASE + CORNE_LIGHTING_LAYER_COUNT);
+}
+
+static inline bool corne_lighting_id_is_bt_color(uint8_t id) {
+    return id >= CORNE_CFG_BT_COLOR_BASE && id < (CORNE_CFG_BT_COLOR_BASE + 5U);
+}
+
 static inline uint32_t corne_lighting_config_value(uint8_t id) {
-    if (id >= CORNE_CFG_LAYER_COLOR_0 && id <= CORNE_CFG_LAYER_COLOR_5) {
-        return corne_lighting_cfg.layer_colors[id - CORNE_CFG_LAYER_COLOR_0];
+    if (corne_lighting_id_is_layer_color(id)) {
+        return corne_lighting_cfg.layer_colors[id - CORNE_CFG_LAYER_COLOR_BASE];
     }
-    if (id >= CORNE_CFG_BT_COLOR_0 && id <= CORNE_CFG_BT_COLOR_4) {
-        return corne_lighting_cfg.bt_colors[id - CORNE_CFG_BT_COLOR_0];
+    if (corne_lighting_id_is_bt_color(id)) {
+        return corne_lighting_cfg.bt_colors[id - CORNE_CFG_BT_COLOR_BASE];
     }
 
     switch (id) {
@@ -108,12 +109,12 @@ static inline uint32_t corne_lighting_config_value(uint8_t id) {
 static inline bool corne_lighting_apply_config_value(uint8_t id, uint32_t value) {
     bool effect_changed = false;
 
-    if (id >= CORNE_CFG_LAYER_COLOR_0 && id <= CORNE_CFG_LAYER_COLOR_5) {
-        corne_lighting_cfg.layer_colors[id - CORNE_CFG_LAYER_COLOR_0] = value;
+    if (corne_lighting_id_is_layer_color(id)) {
+        corne_lighting_cfg.layer_colors[id - CORNE_CFG_LAYER_COLOR_BASE] = value;
         return false;
     }
-    if (id >= CORNE_CFG_BT_COLOR_0 && id <= CORNE_CFG_BT_COLOR_4) {
-        corne_lighting_cfg.bt_colors[id - CORNE_CFG_BT_COLOR_0] = value;
+    if (corne_lighting_id_is_bt_color(id)) {
+        corne_lighting_cfg.bt_colors[id - CORNE_CFG_BT_COLOR_BASE] = value;
         return false;
     }
 
@@ -177,44 +178,73 @@ static inline bool corne_lighting_apply_config_value(uint8_t id, uint32_t value)
     return effect_changed;
 }
 
-static inline uint8_t corne_lighting_config_id_from_key(const char *key) {
-    static const char *const keys[CORNE_CFG_COUNT] = {
-        [CORNE_CFG_ENABLED] = "enabled",
-        [CORNE_CFG_AMBIENT_EFFECT] = "ambient_effect",
-        [CORNE_CFG_AMBIENT_COLOR] = "ambient_color",
-        [CORNE_CFG_AMBIENT_BRIGHTNESS] = "ambient_brightness",
-        [CORNE_CFG_AMBIENT_PERIOD_MS] = "ambient_period_ms",
-        [CORNE_CFG_FIREFLY_COUNT] = "firefly_count",
-        [CORNE_CFG_FIREFLY_INTERVAL_MS] = "firefly_interval_ms",
-        [CORNE_CFG_FIREFLY_FADE_MS] = "firefly_fade_ms",
-        [CORNE_CFG_FIREFLY_VARIATION] = "firefly_variation",
-        [CORNE_CFG_LAYER_ENABLED] = "layer_enabled",
-        [CORNE_CFG_LAYER_MODE] = "layer_mode",
-        [CORNE_CFG_LAYER_DURATION_MS] = "layer_duration_ms",
-        [CORNE_CFG_LAYER_BRIGHTNESS] = "layer_brightness",
-        [CORNE_CFG_LAYER_COLOR_0] = "layer_color_0",
-        [CORNE_CFG_LAYER_COLOR_1] = "layer_color_1",
-        [CORNE_CFG_LAYER_COLOR_2] = "layer_color_2",
-        [CORNE_CFG_LAYER_COLOR_3] = "layer_color_3",
-        [CORNE_CFG_LAYER_COLOR_4] = "layer_color_4",
-        [CORNE_CFG_LAYER_COLOR_5] = "layer_color_5",
-        [CORNE_CFG_BT_ENABLED] = "bt_enabled",
-        [CORNE_CFG_BT_DURATION_MS] = "bt_duration_ms",
-        [CORNE_CFG_BT_EFFECT] = "bt_effect",
-        [CORNE_CFG_BT_BRIGHTNESS] = "bt_brightness",
-        [CORNE_CFG_BT_COLOR_0] = "bt_color_0",
-        [CORNE_CFG_BT_COLOR_1] = "bt_color_1",
-        [CORNE_CFG_BT_COLOR_2] = "bt_color_2",
-        [CORNE_CFG_BT_COLOR_3] = "bt_color_3",
-        [CORNE_CFG_BT_COLOR_4] = "bt_color_4",
-    };
+static inline bool corne_lighting_parse_index(const char *key, const char *prefix,
+                                               uint8_t limit, uint8_t *out) {
+    size_t prefix_len = strlen(prefix);
+    if (strncmp(key, prefix, prefix_len) != 0) {
+        return false;
+    }
 
+    const char *p = key + prefix_len;
+    if (*p == '\0') {
+        return false;
+    }
+
+    uint16_t value = 0U;
+    while (*p != '\0') {
+        if (*p < '0' || *p > '9') {
+            return false;
+        }
+        value = (uint16_t)(value * 10U + (uint16_t)(*p - '0'));
+        if (value >= limit) {
+            return false;
+        }
+        p++;
+    }
+
+    *out = (uint8_t)value;
+    return true;
+}
+
+static inline uint8_t corne_lighting_config_id_from_key(const char *key) {
     if (!key) {
         return CORNE_CFG_COUNT;
     }
-    for (uint8_t i = 0; i < CORNE_CFG_COUNT; i++) {
-        if (strcmp(key, keys[i]) == 0) {
-            return i;
+
+    uint8_t index;
+    if (corne_lighting_parse_index(key, "layer_color_", CORNE_LIGHTING_LAYER_COUNT, &index)) {
+        return (uint8_t)(CORNE_CFG_LAYER_COLOR_BASE + index);
+    }
+    if (corne_lighting_parse_index(key, "bt_color_", 5U, &index)) {
+        return (uint8_t)(CORNE_CFG_BT_COLOR_BASE + index);
+    }
+
+    static const struct {
+        const char *key;
+        uint8_t id;
+    } fixed_keys[] = {
+        {"enabled", CORNE_CFG_ENABLED},
+        {"ambient_effect", CORNE_CFG_AMBIENT_EFFECT},
+        {"ambient_color", CORNE_CFG_AMBIENT_COLOR},
+        {"ambient_brightness", CORNE_CFG_AMBIENT_BRIGHTNESS},
+        {"ambient_period_ms", CORNE_CFG_AMBIENT_PERIOD_MS},
+        {"firefly_count", CORNE_CFG_FIREFLY_COUNT},
+        {"firefly_interval_ms", CORNE_CFG_FIREFLY_INTERVAL_MS},
+        {"firefly_fade_ms", CORNE_CFG_FIREFLY_FADE_MS},
+        {"firefly_variation", CORNE_CFG_FIREFLY_VARIATION},
+        {"layer_enabled", CORNE_CFG_LAYER_ENABLED},
+        {"layer_mode", CORNE_CFG_LAYER_MODE},
+        {"layer_duration_ms", CORNE_CFG_LAYER_DURATION_MS},
+        {"layer_brightness", CORNE_CFG_LAYER_BRIGHTNESS},
+        {"bt_enabled", CORNE_CFG_BT_ENABLED},
+        {"bt_duration_ms", CORNE_CFG_BT_DURATION_MS},
+        {"bt_effect", CORNE_CFG_BT_EFFECT},
+        {"bt_brightness", CORNE_CFG_BT_BRIGHTNESS},
+    };
+
+    for (size_t i = 0; i < ARRAY_SIZE(fixed_keys); i++) {
+        if (strcmp(key, fixed_keys[i].key) == 0) {
+            return fixed_keys[i].id;
         }
     }
     return CORNE_CFG_COUNT;
