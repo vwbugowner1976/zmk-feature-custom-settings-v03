@@ -35,6 +35,12 @@
 #define CORNE_AMBIENT_COMET 2
 #define CORNE_AMBIENT_SPARKLE 3
 #define CORNE_AMBIENT_RAINBOW 4
+#define CORNE_AMBIENT_RAINBOW_MOOD 5
+#define CORNE_AMBIENT_RAINBOW_SWIRL 6
+#define CORNE_AMBIENT_SNAKE 7
+#define CORNE_AMBIENT_KNIGHT 8
+#define CORNE_AMBIENT_CHRISTMAS 9
+#define CORNE_AMBIENT_ALTERNATING 10
 
 struct corne_lighting_config {
     bool enabled;
@@ -316,6 +322,123 @@ static void corne_render_rainbow(int64_t now) {
     }
 }
 
+
+static void corne_render_rainbow_mood(int64_t now) {
+    uint32_t period = MAX((uint32_t)corne_lighting_cfg.ambient_period_ms, 400U);
+    uint8_t pos = (uint8_t)(((uint64_t)(now % period) * 256U) / period);
+    corne_render_solid(corne_wheel_color(pos), corne_lighting_cfg.ambient_brightness, 255);
+}
+
+static void corne_render_rainbow_swirl(int64_t now) {
+    corne_clear_pixels();
+    if (CORNE_LIGHTING_LED_COUNT == 0) {
+        return;
+    }
+
+    uint32_t period = MAX((uint32_t)corne_lighting_cfg.ambient_period_ms, 400U);
+    uint8_t base = (uint8_t)(((uint64_t)(now % period) * 256U) / period);
+
+    /* Use a tighter hue span than Rainbow Wave so the moving colors read as
+     * a rotating swirl rather than one full spectrum stretched over the strip. */
+    for (size_t i = 0; i < CORNE_LIGHTING_LED_COUNT; i++) {
+        uint8_t pos =
+            (uint8_t)(base + ((uint32_t)i * 128U) / CORNE_LIGHTING_LED_COUNT);
+        corne_lighting_pixels[i] =
+            corne_packed_to_rgb(corne_wheel_color(pos),
+                                corne_lighting_cfg.ambient_brightness, 255, 0);
+    }
+}
+
+static void corne_render_snake(int64_t now) {
+    corne_clear_pixels();
+    if (CORNE_LIGHTING_LED_COUNT == 0) {
+        return;
+    }
+
+    uint32_t period = MAX((uint32_t)corne_lighting_cfg.ambient_period_ms, 400U);
+    uint32_t phase = (uint32_t)(now % period);
+    size_t head = ((uint64_t)phase * CORNE_LIGHTING_LED_COUNT) / period;
+    uint8_t length = CLAMP(corne_lighting_cfg.firefly_count, 1U,
+                           (uint8_t)MIN(CORNE_LIGHTING_LED_COUNT, 8U));
+    struct led_rgb rgb =
+        corne_packed_to_rgb(corne_lighting_cfg.ambient_color,
+                            corne_lighting_cfg.ambient_brightness, 255, 0);
+
+    for (uint8_t offset = 0; offset < length; offset++) {
+        size_t index =
+            (head + CORNE_LIGHTING_LED_COUNT - offset) % CORNE_LIGHTING_LED_COUNT;
+        corne_lighting_pixels[index] = rgb;
+    }
+}
+
+static void corne_render_knight(int64_t now) {
+    corne_clear_pixels();
+    if (CORNE_LIGHTING_LED_COUNT == 0) {
+        return;
+    }
+
+    uint32_t period = MAX((uint32_t)corne_lighting_cfg.ambient_period_ms, 400U);
+    uint8_t trail = CLAMP(corne_lighting_cfg.firefly_count, 1U,
+                          (uint8_t)MIN(CORNE_LIGHTING_LED_COUNT, 8U));
+
+    size_t head = 0;
+    if (CORNE_LIGHTING_LED_COUNT > 1U) {
+        size_t travel = (CORNE_LIGHTING_LED_COUNT - 1U) * 2U;
+        size_t step = ((uint64_t)(now % period) * travel) / period;
+        head = step < CORNE_LIGHTING_LED_COUNT ? step : travel - step;
+    }
+
+    for (size_t i = 0; i < CORNE_LIGHTING_LED_COUNT; i++) {
+        size_t distance = i > head ? i - head : head - i;
+        if (distance >= trail) {
+            continue;
+        }
+        uint8_t level =
+            trail <= 1U ? 255U : (uint8_t)(255U - ((uint32_t)distance * 220U) / trail);
+        corne_lighting_pixels[i] =
+            corne_packed_to_rgb(corne_lighting_cfg.ambient_color,
+                                corne_lighting_cfg.ambient_brightness, level, 0);
+    }
+}
+
+static void corne_render_christmas(int64_t now) {
+    corne_clear_pixels();
+    if (CORNE_LIGHTING_LED_COUNT == 0) {
+        return;
+    }
+
+    uint32_t period = MAX((uint32_t)corne_lighting_cfg.ambient_period_ms, 400U);
+    uint32_t step_ms = MAX(80U, period / 8U);
+    uint32_t shift = (uint32_t)(now / step_ms) & 0x03U;
+
+    for (size_t i = 0; i < CORNE_LIGHTING_LED_COUNT; i++) {
+        bool red = (((i + shift) / 2U) & 1U) == 0U;
+        uint32_t color = red ? 0xFF2010U : 0x10FF30U;
+        corne_lighting_pixels[i] =
+            corne_packed_to_rgb(color, corne_lighting_cfg.ambient_brightness, 255, 0);
+    }
+}
+
+static void corne_render_alternating(int64_t now) {
+    corne_clear_pixels();
+    if (CORNE_LIGHTING_LED_COUNT == 0) {
+        return;
+    }
+
+    uint32_t period = MAX((uint32_t)corne_lighting_cfg.ambient_period_ms, 400U);
+    uint32_t half = MAX(100U, period / 2U);
+    uint8_t phase = (uint8_t)((now / half) & 1U);
+    struct led_rgb rgb =
+        corne_packed_to_rgb(corne_lighting_cfg.ambient_color,
+                            corne_lighting_cfg.ambient_brightness, 255, 0);
+
+    for (size_t i = 0; i < CORNE_LIGHTING_LED_COUNT; i++) {
+        if (((i + phase) & 1U) == 0U) {
+            corne_lighting_pixels[i] = rgb;
+        }
+    }
+}
+
 static void corne_render_ambient(int64_t now) {
     switch (corne_lighting_cfg.ambient_effect) {
     case CORNE_AMBIENT_BREATHING:
@@ -329,6 +452,24 @@ static void corne_render_ambient(int64_t now) {
         break;
     case CORNE_AMBIENT_RAINBOW:
         corne_render_rainbow(now);
+        break;
+    case CORNE_AMBIENT_RAINBOW_MOOD:
+        corne_render_rainbow_mood(now);
+        break;
+    case CORNE_AMBIENT_RAINBOW_SWIRL:
+        corne_render_rainbow_swirl(now);
+        break;
+    case CORNE_AMBIENT_SNAKE:
+        corne_render_snake(now);
+        break;
+    case CORNE_AMBIENT_KNIGHT:
+        corne_render_knight(now);
+        break;
+    case CORNE_AMBIENT_CHRISTMAS:
+        corne_render_christmas(now);
+        break;
+    case CORNE_AMBIENT_ALTERNATING:
+        corne_render_alternating(now);
         break;
     case CORNE_AMBIENT_FIREFLY:
     default:
