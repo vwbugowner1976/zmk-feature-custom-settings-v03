@@ -11,7 +11,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#define CORNE_LIGHTING_RELAY_PROTOCOL_VERSION 4U
+#define CORNE_LIGHTING_RELAY_PROTOCOL_VERSION 5U
 
 #define CORNE_LIGHTING_RELAY_KIND_CONFIG 0U
 #define CORNE_LIGHTING_RELAY_KIND_LAYER 1U
@@ -27,13 +27,18 @@ enum corne_lighting_config_base_id {
     CORNE_CFG_FIREFLY_INTERVAL_MS,
     CORNE_CFG_FIREFLY_FADE_MS,
     CORNE_CFG_FIREFLY_VARIATION,
+    CORNE_CFG_REACTIVE_BASE_COLOR,
+    CORNE_CFG_REACTIVE_RIPPLE_COLOR,
+    CORNE_CFG_REACTIVE_TRAVEL_MS,
+    CORNE_CFG_REACTIVE_WIDTH,
+    CORNE_CFG_REACTIVE_FADE_MS,
     CORNE_CFG_LAYER_ENABLED,
     CORNE_CFG_LAYER_MODE,
     CORNE_CFG_LAYER_DURATION_MS,
     CORNE_CFG_LAYER_BRIGHTNESS,
 };
 
-#define CORNE_CFG_LAYER_COLOR_BASE 13U
+#define CORNE_CFG_LAYER_COLOR_BASE 18U
 #define CORNE_CFG_BT_ENABLED (CORNE_CFG_LAYER_COLOR_BASE + CORNE_LIGHTING_LAYER_COUNT)
 #define CORNE_CFG_BT_DURATION_MS (CORNE_CFG_BT_ENABLED + 1U)
 #define CORNE_CFG_BT_EFFECT (CORNE_CFG_BT_ENABLED + 2U)
@@ -85,6 +90,16 @@ static inline uint32_t corne_lighting_config_value(uint8_t id) {
         return corne_lighting_cfg.firefly_fade_ms;
     case CORNE_CFG_FIREFLY_VARIATION:
         return corne_lighting_cfg.firefly_variation;
+    case CORNE_CFG_REACTIVE_BASE_COLOR:
+        return corne_lighting_cfg.reactive_base_color;
+    case CORNE_CFG_REACTIVE_RIPPLE_COLOR:
+        return corne_lighting_cfg.reactive_ripple_color;
+    case CORNE_CFG_REACTIVE_TRAVEL_MS:
+        return corne_lighting_cfg.reactive_travel_ms;
+    case CORNE_CFG_REACTIVE_WIDTH:
+        return corne_lighting_cfg.reactive_width;
+    case CORNE_CFG_REACTIVE_FADE_MS:
+        return corne_lighting_cfg.reactive_fade_ms;
     case CORNE_CFG_LAYER_ENABLED:
         return corne_lighting_cfg.layer_enabled;
     case CORNE_CFG_LAYER_MODE:
@@ -146,6 +161,21 @@ static inline bool corne_lighting_apply_config_value(uint8_t id, uint32_t value)
         break;
     case CORNE_CFG_FIREFLY_VARIATION:
         corne_lighting_cfg.firefly_variation = (uint8_t)value;
+        break;
+    case CORNE_CFG_REACTIVE_BASE_COLOR:
+        corne_lighting_cfg.reactive_base_color = value;
+        break;
+    case CORNE_CFG_REACTIVE_RIPPLE_COLOR:
+        corne_lighting_cfg.reactive_ripple_color = value;
+        break;
+    case CORNE_CFG_REACTIVE_TRAVEL_MS:
+        corne_lighting_cfg.reactive_travel_ms = (uint16_t)value;
+        break;
+    case CORNE_CFG_REACTIVE_WIDTH:
+        corne_lighting_cfg.reactive_width = (uint8_t)value;
+        break;
+    case CORNE_CFG_REACTIVE_FADE_MS:
+        corne_lighting_cfg.reactive_fade_ms = (uint16_t)value;
         break;
     case CORNE_CFG_LAYER_ENABLED:
         corne_lighting_cfg.layer_enabled = value != 0U;
@@ -232,6 +262,11 @@ static inline uint8_t corne_lighting_config_id_from_key(const char *key) {
         {"firefly_interval_ms", CORNE_CFG_FIREFLY_INTERVAL_MS},
         {"firefly_fade_ms", CORNE_CFG_FIREFLY_FADE_MS},
         {"firefly_variation", CORNE_CFG_FIREFLY_VARIATION},
+        {"reactive_base_color", CORNE_CFG_REACTIVE_BASE_COLOR},
+        {"reactive_ripple_color", CORNE_CFG_REACTIVE_RIPPLE_COLOR},
+        {"reactive_travel_ms", CORNE_CFG_REACTIVE_TRAVEL_MS},
+        {"reactive_width", CORNE_CFG_REACTIVE_WIDTH},
+        {"reactive_fade_ms", CORNE_CFG_REACTIVE_FADE_MS},
         {"layer_enabled", CORNE_CFG_LAYER_ENABLED},
         {"layer_mode", CORNE_CFG_LAYER_MODE},
         {"layer_duration_ms", CORNE_CFG_LAYER_DURATION_MS},
