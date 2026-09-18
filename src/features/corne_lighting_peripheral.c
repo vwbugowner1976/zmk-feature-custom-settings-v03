@@ -17,6 +17,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include "corne_lighting_relay.h"
 
 #include <zmk/event_manager.h>
+#include <zmk/events/position_state_changed.h>
 
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_RELAY_EVENT)
 #include <zmk/split/relay/event.h>
@@ -65,6 +66,20 @@ static int relay_listener(const zmk_event_t *eh) {
 ZMK_LISTENER(corne_lighting_relay_listener, relay_listener);
 ZMK_SUBSCRIPTION(corne_lighting_relay_listener, corne_lighting_relay);
 #endif
+
+static int position_listener(const zmk_event_t *eh) {
+    const struct zmk_position_state_changed *ev = as_zmk_position_state_changed(eh);
+    if (!ev || !ev->state) {
+        return ZMK_EV_EVENT_BUBBLE;
+    }
+
+    /* React locally on the right half so the animation starts with no
+     * central->peripheral round trip. */
+    corne_reactive_trigger(ev->position, true);
+    return ZMK_EV_EVENT_BUBBLE;
+}
+ZMK_LISTENER(corne_lighting_position_listener, position_listener);
+ZMK_SUBSCRIPTION(corne_lighting_position_listener, zmk_position_state_changed);
 
 static void startup_handler(struct k_work *work) {
     ARG_UNUSED(work);
