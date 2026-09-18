@@ -63,7 +63,7 @@ BUILD_ASSERT(CORNE_LIGHTING_LAYER_COUNT <= 32, "Corne Lighting supports up to 32
      ((idx) % 6U) == 4U ? 0xFF50A8 : 0x40DFFF)
 
 BOOL_SETTING(corne_led_enabled, "enabled", true);
-INT_SETTING(corne_led_ambient_effect, "ambient_effect", CORNE_AMBIENT_FIREFLY, 0, 4);
+INT_SETTING(corne_led_ambient_effect, "ambient_effect", CORNE_AMBIENT_FIREFLY, 0, 10);
 INT_SETTING(corne_led_ambient_color, "ambient_color", 0xA8FF40, 0, 0xFFFFFF);
 INT_SETTING(corne_led_ambient_brightness, "ambient_brightness", 12, 0, 100);
 INT_SETTING(corne_led_ambient_period, "ambient_period_ms", 2400, 400, 10000);
