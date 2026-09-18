@@ -22,6 +22,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/event_manager.h>
 #include <zmk/events/ble_active_profile_changed.h>
 #include <zmk/events/layer_state_changed.h>
+#include <zmk/events/position_state_changed.h>
 #include <zmk/keymap.h>
 
 #if IS_ENABLED(CONFIG_ZMK_CUSTOM_SETTINGS)
@@ -63,7 +64,7 @@ BUILD_ASSERT(CORNE_LIGHTING_LAYER_COUNT <= 32, "Corne Lighting supports up to 32
      ((idx) % 6U) == 4U ? 0xFF50A8 : 0x40DFFF)
 
 BOOL_SETTING(corne_led_enabled, "enabled", true);
-INT_SETTING(corne_led_ambient_effect, "ambient_effect", CORNE_AMBIENT_FIREFLY, 0, 10);
+INT_SETTING(corne_led_ambient_effect, "ambient_effect", CORNE_AMBIENT_FIREFLY, 0, 11);
 INT_SETTING(corne_led_ambient_color, "ambient_color", 0xA8FF40, 0, 0xFFFFFF);
 INT_SETTING(corne_led_ambient_brightness, "ambient_brightness", 12, 0, 100);
 INT_SETTING(corne_led_ambient_period, "ambient_period_ms", 2400, 400, 10000);
@@ -71,6 +72,12 @@ INT_SETTING(corne_led_firefly_count, "firefly_count", 3, 1, 8);
 INT_SETTING(corne_led_firefly_interval, "firefly_interval_ms", 900, 100, 5000);
 INT_SETTING(corne_led_firefly_fade, "firefly_fade_ms", 1600, 100, 5000);
 INT_SETTING(corne_led_firefly_variation, "firefly_variation", 18, 0, 50);
+
+INT_SETTING(corne_led_reactive_base_color, "reactive_base_color", 0xFF3010, 0, 0xFFFFFF);
+INT_SETTING(corne_led_reactive_ripple_color, "reactive_ripple_color", 0x00D8FF, 0, 0xFFFFFF);
+INT_SETTING(corne_led_reactive_travel, "reactive_travel_ms", 650, 100, 3000);
+INT_SETTING(corne_led_reactive_width, "reactive_width", 13, 1, 40);
+INT_SETTING(corne_led_reactive_fade, "reactive_fade_ms", 1200, 100, 5000);
 
 BOOL_SETTING(corne_led_layer_enabled, "layer_enabled", true);
 INT_SETTING(corne_led_layer_mode, "layer_mode", 0, 0, 1);
@@ -125,6 +132,12 @@ static void load_settings(void) {
     if (read_int("firefly_interval_ms", &v) == 0) corne_lighting_cfg.firefly_interval_ms = (uint16_t)v;
     if (read_int("firefly_fade_ms", &v) == 0) corne_lighting_cfg.firefly_fade_ms = (uint16_t)v;
     if (read_int("firefly_variation", &v) == 0) corne_lighting_cfg.firefly_variation = (uint8_t)v;
+
+    if (read_int("reactive_base_color", &v) == 0) corne_lighting_cfg.reactive_base_color = (uint32_t)v;
+    if (read_int("reactive_ripple_color", &v) == 0) corne_lighting_cfg.reactive_ripple_color = (uint32_t)v;
+    if (read_int("reactive_travel_ms", &v) == 0) corne_lighting_cfg.reactive_travel_ms = (uint16_t)v;
+    if (read_int("reactive_width", &v) == 0) corne_lighting_cfg.reactive_width = (uint8_t)v;
+    if (read_int("reactive_fade_ms", &v) == 0) corne_lighting_cfg.reactive_fade_ms = (uint16_t)v;
 
     (void)read_bool("layer_enabled", &corne_lighting_cfg.layer_enabled);
     if (read_int("layer_mode", &v) == 0) corne_lighting_cfg.layer_mode = (uint8_t)v;
@@ -213,6 +226,20 @@ static bool corne_lighting_rpc_handle_request(const zmk_custom_CallRequest *requ
     return false;
 }
 #endif
+
+static int position_listener(const zmk_event_t *eh) {
+    const struct zmk_position_state_changed *ev = as_zmk_position_state_changed(eh);
+    if (!ev || !ev->state) {
+        return ZMK_EV_EVENT_BUBBLE;
+    }
+
+    /* The central renders only the left half. Right-half key positions are
+     * ignored here and are handled immediately by the peripheral itself. */
+    corne_reactive_trigger(ev->position, false);
+    return ZMK_EV_EVENT_BUBBLE;
+}
+ZMK_LISTENER(corne_lighting_position_listener, position_listener);
+ZMK_SUBSCRIPTION(corne_lighting_position_listener, zmk_position_state_changed);
 
 static int layer_listener(const zmk_event_t *eh) {
     const struct zmk_layer_state_changed *ev = as_zmk_layer_state_changed(eh);
