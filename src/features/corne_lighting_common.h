@@ -41,6 +41,12 @@
 #define CORNE_AMBIENT_KNIGHT 8
 #define CORNE_AMBIENT_CHRISTMAS 9
 #define CORNE_AMBIENT_ALTERNATING 10
+#define CORNE_AMBIENT_REACTIVE_RIPPLE 11
+
+#define CORNE_FRONT_LED_FIRST 6U
+#define CORNE_FRONT_LED_COUNT 21U
+#define CORNE_REACTIVE_MAX_RIPPLES 6U
+#define CORNE_REACTIVE_MAX_DISTANCE 70U
 
 struct corne_lighting_config {
     bool enabled;
@@ -52,6 +58,12 @@ struct corne_lighting_config {
     uint16_t firefly_interval_ms;
     uint16_t firefly_fade_ms;
     uint8_t firefly_variation;
+
+    uint32_t reactive_base_color;
+    uint32_t reactive_ripple_color;
+    uint16_t reactive_travel_ms;
+    uint8_t reactive_width;
+    uint16_t reactive_fade_ms;
 
     bool layer_enabled;
     uint8_t layer_mode; /* 0 = while active, 1 = flash on change */
@@ -72,10 +84,48 @@ struct corne_firefly_state {
     int8_t variation;
 };
 
+struct corne_reactive_ripple {
+    bool active;
+    int8_t x;
+    int8_t y;
+    int64_t started;
+};
+
+/*
+ * Corne v2 front/backlight LEDs are physical LEDs 7..27.  The coordinates
+ * below follow the standard Corne LED routing (front LED 1 == physical LED 7)
+ * and are scaled in roughly tenths of a key pitch.
+ */
+static const int8_t corne_front_led_x[CORNE_FRONT_LED_COUNT] = {
+    60, 50, 50, 50, 40, 40, 40, 45, 35, 30, 30, 30, 20, 20, 20, 10, 10, 10, 0, 0, 0,
+};
+static const int8_t corne_front_led_y[CORNE_FRONT_LED_COUNT] = {
+    -10, 0, 10, 20, 21, 11, 1, -11, -10, 2, 12, 22, 21, 11, 1, -2, 8, 18, 18, 8, -2,
+};
+
+/*
+ * ZMK Corne key positions are interleaved left/right by row.  Map them to the
+ * per-half front LED number (LED1..LED21 => 0..20).  -1 means the key belongs
+ * to the other half.
+ */
+static const int8_t corne_left_position_to_front[42] = {
+    20,15,14, 9, 6, 1, -1,-1,-1,-1,-1,-1,
+    19,16,13,10, 5, 2, -1,-1,-1,-1,-1,-1,
+    18,17,12,11, 4, 3, -1,-1,-1,-1,-1,-1,
+     8, 7, 0, -1,-1,-1,
+};
+static const int8_t corne_right_position_to_front[42] = {
+    -1,-1,-1,-1,-1,-1, 1, 6, 9,14,15,20,
+    -1,-1,-1,-1,-1,-1, 2, 5,10,13,16,19,
+    -1,-1,-1,-1,-1,-1, 3, 4,11,12,17,18,
+    -1,-1,-1, 0, 7, 8,
+};
+
 static const struct device *const corne_lighting_strip = DEVICE_DT_GET(CORNE_LIGHTING_STRIP_NODE);
 static struct led_rgb corne_lighting_pixels[CORNE_LIGHTING_LED_COUNT];
 static struct corne_firefly_state corne_fireflies[CORNE_LIGHTING_LED_COUNT];
 static bool corne_sparkles[CORNE_LIGHTING_LED_COUNT];
+static struct corne_reactive_ripple corne_reactive_ripples[CORNE_REACTIVE_MAX_RIPPLES];
 static struct corne_lighting_config corne_lighting_cfg;
 static uint8_t corne_active_layer;
 static uint8_t corne_active_bt_profile;
@@ -114,6 +164,7 @@ static void corne_clear_pixels(void) { memset(corne_lighting_pixels, 0, sizeof(c
 static void corne_reset_ambient_state(void) {
     memset(corne_fireflies, 0, sizeof(corne_fireflies));
     memset(corne_sparkles, 0, sizeof(corne_sparkles));
+    memset(corne_reactive_ripples, 0, sizeof(corne_reactive_ripples));
     corne_next_spawn_at = k_uptime_get();
     corne_last_sparkle_slot = UINT32_MAX;
 }
@@ -439,6 +490,123 @@ static void corne_render_alternating(int64_t now) {
     }
 }
 
+
+static struct led_rgb corne_blend_rgb(struct led_rgb base, struct led_rgb over, uint8_t alpha) {
+    uint16_t inverse = 255U - alpha;
+    return (struct led_rgb){
+        .r = (uint8_t)(((uint16_t)base.r * inverse + (uint16_t)over.r * alpha) / 255U),
+        .g = (uint8_t)(((uint16_t)base.g * inverse + (uint16_t)over.g * alpha) / 255U),
+        .b = (uint8_t)(((uint16_t)base.b * inverse + (uint16_t)over.b * alpha) / 255U),
+    };
+}
+
+static uint8_t corne_reactive_distance(int8_t ax, int8_t ay, int8_t bx, int8_t by) {
+    uint8_t dx = (uint8_t)ABS((int16_t)ax - (int16_t)bx);
+    uint8_t dy = (uint8_t)ABS((int16_t)ay - (int16_t)by);
+    uint8_t hi = MAX(dx, dy);
+    uint8_t lo = MIN(dx, dy);
+    return (uint8_t)(hi + lo / 2U);
+}
+
+static int8_t corne_position_to_front(uint32_t position, bool right_half) {
+    if (position >= ARRAY_SIZE(corne_left_position_to_front)) {
+        return -1;
+    }
+    return right_half ? corne_right_position_to_front[position]
+                      : corne_left_position_to_front[position];
+}
+
+static void corne_reactive_trigger(uint32_t position, bool right_half) {
+    if (corne_lighting_cfg.ambient_effect != CORNE_AMBIENT_REACTIVE_RIPPLE) {
+        return;
+    }
+
+    int8_t front = corne_position_to_front(position, right_half);
+    if (front < 0 || front >= CORNE_FRONT_LED_COUNT) {
+        return;
+    }
+
+    size_t slot = 0U;
+    int64_t oldest = INT64_MAX;
+    for (size_t i = 0; i < ARRAY_SIZE(corne_reactive_ripples); i++) {
+        if (!corne_reactive_ripples[i].active) {
+            slot = i;
+            oldest = INT64_MIN;
+            break;
+        }
+        if (corne_reactive_ripples[i].started < oldest) {
+            oldest = corne_reactive_ripples[i].started;
+            slot = i;
+        }
+    }
+
+    corne_reactive_ripples[slot] = (struct corne_reactive_ripple){
+        .active = true,
+        .x = corne_front_led_x[front],
+        .y = corne_front_led_y[front],
+        .started = k_uptime_get(),
+    };
+}
+
+static void corne_render_reactive_ripple(int64_t now) {
+    struct led_rgb base =
+        corne_packed_to_rgb(corne_lighting_cfg.reactive_base_color,
+                            corne_lighting_cfg.ambient_brightness, 255, 0);
+    struct led_rgb ripple =
+        corne_packed_to_rgb(corne_lighting_cfg.reactive_ripple_color,
+                            corne_lighting_cfg.ambient_brightness, 255, 0);
+
+    /* Underglow LEDs stay on the base color, matching the reference video. */
+    for (size_t i = 0; i < CORNE_LIGHTING_LED_COUNT; i++) {
+        corne_lighting_pixels[i] = base;
+    }
+
+    uint16_t travel_ms = MAX(corne_lighting_cfg.reactive_travel_ms, 100U);
+    uint16_t fade_ms = MAX(corne_lighting_cfg.reactive_fade_ms, travel_ms);
+    uint8_t width = MAX(corne_lighting_cfg.reactive_width, 1U);
+
+    for (size_t front = 0; front < CORNE_FRONT_LED_COUNT; front++) {
+        uint16_t alpha_sum = 0U;
+
+        for (size_t r = 0; r < ARRAY_SIZE(corne_reactive_ripples); r++) {
+            struct corne_reactive_ripple *wave = &corne_reactive_ripples[r];
+            if (!wave->active) {
+                continue;
+            }
+
+            int64_t elapsed64 = now - wave->started;
+            if (elapsed64 < 0) {
+                continue;
+            }
+            if (elapsed64 >= fade_ms) {
+                wave->active = false;
+                continue;
+            }
+
+            uint32_t elapsed = (uint32_t)elapsed64;
+            uint32_t radius = ((uint64_t)elapsed * CORNE_REACTIVE_MAX_DISTANCE) / travel_ms;
+            uint8_t distance =
+                corne_reactive_distance(corne_front_led_x[front], corne_front_led_y[front],
+                                        wave->x, wave->y);
+            uint32_t delta = distance > radius ? distance - radius : radius - distance;
+            if (delta > width) {
+                continue;
+            }
+
+            uint32_t ring = 255U - (delta * 255U) / width;
+            uint32_t fade = 255U - (elapsed * 255U) / fade_ms;
+            uint32_t alpha = (ring * fade) / 255U;
+            alpha_sum = MIN(255U, alpha_sum + alpha);
+        }
+
+        size_t strip_index = CORNE_FRONT_LED_FIRST + front;
+        if (strip_index < CORNE_LIGHTING_LED_COUNT && alpha_sum > 0U) {
+            corne_lighting_pixels[strip_index] =
+                corne_blend_rgb(base, ripple, (uint8_t)alpha_sum);
+        }
+    }
+}
+
 static void corne_render_ambient(int64_t now) {
     switch (corne_lighting_cfg.ambient_effect) {
     case CORNE_AMBIENT_BREATHING:
@@ -470,6 +638,9 @@ static void corne_render_ambient(int64_t now) {
         break;
     case CORNE_AMBIENT_ALTERNATING:
         corne_render_alternating(now);
+        break;
+    case CORNE_AMBIENT_REACTIVE_RIPPLE:
+        corne_render_reactive_ripple(now);
         break;
     case CORNE_AMBIENT_FIREFLY:
     default:
@@ -537,6 +708,11 @@ static void corne_lighting_set_defaults(void) {
         .firefly_interval_ms = 900,
         .firefly_fade_ms = 1600,
         .firefly_variation = 18,
+        .reactive_base_color = 0xFF3010,
+        .reactive_ripple_color = 0x00D8FF,
+        .reactive_travel_ms = 650,
+        .reactive_width = 13,
+        .reactive_fade_ms = 1200,
         .layer_enabled = true,
         .layer_mode = 0,
         .layer_duration_ms = 500,
