@@ -37,6 +37,7 @@ if(CONFIG_ZMK_CUSTOM_SETTINGS)
 endif()
 
 if(CONFIG_ZMK_CORNE_LIGHTING)
+    target_sources(app PRIVATE src/features/behavior_corne_lighting_mode.c)
     if(CONFIG_ZMK_CORNE_LIGHTING_LED_TEST)
         target_sources(app PRIVATE src/features/corne_lighting_led_test.c)
     elseif(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
