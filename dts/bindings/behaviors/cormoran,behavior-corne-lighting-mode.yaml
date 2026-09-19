@@ -1,0 +1,13 @@
+description: Corne Lighting ambient mode step behavior
+
+compatible: "cormoran,behavior-corne-lighting-mode"
+
+include: zero_param.yaml
+
+properties:
+  direction:
+    type: string
+    required: true
+    enum:
+      - next
+      - previous
