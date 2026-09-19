@@ -79,6 +79,12 @@ INT_SETTING(corne_led_reactive_travel, "reactive_travel_ms", 650, 100, 3000);
 INT_SETTING(corne_led_reactive_width, "reactive_width", 13, 1, 40);
 INT_SETTING(corne_led_reactive_fade, "reactive_fade_ms", 1200, 100, 5000);
 
+INT_SETTING(corne_led_front_effect, "front_effect", CORNE_FRONT_REACTIVE_RAINBOW, 0,
+            CORNE_FRONT_MODE_COUNT - 1);
+INT_SETTING(corne_led_front_color, "front_color", 0x40DFFF, 0, 0xFFFFFF);
+INT_SETTING(corne_led_front_brightness, "front_brightness", 30, 0, 100);
+INT_SETTING(corne_led_front_period, "front_period_ms", 1800, 400, 10000);
+
 BOOL_SETTING(corne_led_layer_enabled, "layer_enabled", true);
 INT_SETTING(corne_led_layer_mode, "layer_mode", 0, 0, 1);
 INT_SETTING(corne_led_layer_duration, "layer_duration_ms", 500, 100, 3000);
@@ -138,6 +144,11 @@ static void load_settings(void) {
     if (read_int("reactive_travel_ms", &v) == 0) corne_lighting_cfg.reactive_travel_ms = (uint16_t)v;
     if (read_int("reactive_width", &v) == 0) corne_lighting_cfg.reactive_width = (uint8_t)v;
     if (read_int("reactive_fade_ms", &v) == 0) corne_lighting_cfg.reactive_fade_ms = (uint16_t)v;
+
+    if (read_int("front_effect", &v) == 0) corne_lighting_cfg.front_effect = (uint8_t)v;
+    if (read_int("front_color", &v) == 0) corne_lighting_cfg.front_color = (uint32_t)v;
+    if (read_int("front_brightness", &v) == 0) corne_lighting_cfg.front_brightness = (uint8_t)v;
+    if (read_int("front_period_ms", &v) == 0) corne_lighting_cfg.front_period_ms = (uint16_t)v;
 
     (void)read_bool("layer_enabled", &corne_lighting_cfg.layer_enabled);
     if (read_int("layer_mode", &v) == 0) corne_lighting_cfg.layer_mode = (uint8_t)v;
@@ -284,8 +295,10 @@ static int setting_listener(const zmk_event_t *eh) {
     }
 
     uint8_t previous_effect = corne_lighting_cfg.ambient_effect;
+    uint8_t previous_front_effect = corne_lighting_cfg.front_effect;
     load_settings();
-    if (previous_effect != corne_lighting_cfg.ambient_effect) {
+    if (previous_effect != corne_lighting_cfg.ambient_effect ||
+        previous_front_effect != corne_lighting_cfg.front_effect) {
         corne_reset_ambient_state();
     }
 
