@@ -11,7 +11,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#define CORNE_LIGHTING_RELAY_PROTOCOL_VERSION 5U
+#define CORNE_LIGHTING_RELAY_PROTOCOL_VERSION 6U
 
 #define CORNE_LIGHTING_RELAY_KIND_CONFIG 0U
 #define CORNE_LIGHTING_RELAY_KIND_LAYER 1U
@@ -32,13 +32,17 @@ enum corne_lighting_config_base_id {
     CORNE_CFG_REACTIVE_TRAVEL_MS,
     CORNE_CFG_REACTIVE_WIDTH,
     CORNE_CFG_REACTIVE_FADE_MS,
+    CORNE_CFG_FRONT_EFFECT,
+    CORNE_CFG_FRONT_COLOR,
+    CORNE_CFG_FRONT_BRIGHTNESS,
+    CORNE_CFG_FRONT_PERIOD_MS,
     CORNE_CFG_LAYER_ENABLED,
     CORNE_CFG_LAYER_MODE,
     CORNE_CFG_LAYER_DURATION_MS,
     CORNE_CFG_LAYER_BRIGHTNESS,
 };
 
-#define CORNE_CFG_LAYER_COLOR_BASE 18U
+#define CORNE_CFG_LAYER_COLOR_BASE 22U
 #define CORNE_CFG_BT_ENABLED (CORNE_CFG_LAYER_COLOR_BASE + CORNE_LIGHTING_LAYER_COUNT)
 #define CORNE_CFG_BT_DURATION_MS (CORNE_CFG_BT_ENABLED + 1U)
 #define CORNE_CFG_BT_EFFECT (CORNE_CFG_BT_ENABLED + 2U)
@@ -100,6 +104,14 @@ static inline uint32_t corne_lighting_config_value(uint8_t id) {
         return corne_lighting_cfg.reactive_width;
     case CORNE_CFG_REACTIVE_FADE_MS:
         return corne_lighting_cfg.reactive_fade_ms;
+    case CORNE_CFG_FRONT_EFFECT:
+        return corne_lighting_cfg.front_effect;
+    case CORNE_CFG_FRONT_COLOR:
+        return corne_lighting_cfg.front_color;
+    case CORNE_CFG_FRONT_BRIGHTNESS:
+        return corne_lighting_cfg.front_brightness;
+    case CORNE_CFG_FRONT_PERIOD_MS:
+        return corne_lighting_cfg.front_period_ms;
     case CORNE_CFG_LAYER_ENABLED:
         return corne_lighting_cfg.layer_enabled;
     case CORNE_CFG_LAYER_MODE:
@@ -176,6 +188,19 @@ static inline bool corne_lighting_apply_config_value(uint8_t id, uint32_t value)
         break;
     case CORNE_CFG_REACTIVE_FADE_MS:
         corne_lighting_cfg.reactive_fade_ms = (uint16_t)value;
+        break;
+    case CORNE_CFG_FRONT_EFFECT:
+        effect_changed = corne_lighting_cfg.front_effect != (uint8_t)value;
+        corne_lighting_cfg.front_effect = (uint8_t)value;
+        break;
+    case CORNE_CFG_FRONT_COLOR:
+        corne_lighting_cfg.front_color = value;
+        break;
+    case CORNE_CFG_FRONT_BRIGHTNESS:
+        corne_lighting_cfg.front_brightness = (uint8_t)value;
+        break;
+    case CORNE_CFG_FRONT_PERIOD_MS:
+        corne_lighting_cfg.front_period_ms = (uint16_t)value;
         break;
     case CORNE_CFG_LAYER_ENABLED:
         corne_lighting_cfg.layer_enabled = value != 0U;
@@ -267,6 +292,10 @@ static inline uint8_t corne_lighting_config_id_from_key(const char *key) {
         {"reactive_travel_ms", CORNE_CFG_REACTIVE_TRAVEL_MS},
         {"reactive_width", CORNE_CFG_REACTIVE_WIDTH},
         {"reactive_fade_ms", CORNE_CFG_REACTIVE_FADE_MS},
+        {"front_effect", CORNE_CFG_FRONT_EFFECT},
+        {"front_color", CORNE_CFG_FRONT_COLOR},
+        {"front_brightness", CORNE_CFG_FRONT_BRIGHTNESS},
+        {"front_period_ms", CORNE_CFG_FRONT_PERIOD_MS},
         {"layer_enabled", CORNE_CFG_LAYER_ENABLED},
         {"layer_mode", CORNE_CFG_LAYER_MODE},
         {"layer_duration_ms", CORNE_CFG_LAYER_DURATION_MS},
