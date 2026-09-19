@@ -1,0 +1,24 @@
+/*
+ * Corne Lighting key behaviors.
+ *
+ * &corne_light_next - cycle to the next ambient effect
+ * &corne_light_prev - cycle to the previous ambient effect
+ */
+
+/ {
+    behaviors {
+        corne_light_next: corne_light_next {
+            compatible = "cormoran,behavior-corne-lighting-mode";
+            #binding-cells = <0>;
+            direction = "next";
+            display-name = "Lighting Next";
+        };
+
+        corne_light_prev: corne_light_prev {
+            compatible = "cormoran,behavior-corne-lighting-mode";
+            #binding-cells = <0>;
+            direction = "previous";
+            display-name = "Lighting Previous";
+        };
+    };
+};
