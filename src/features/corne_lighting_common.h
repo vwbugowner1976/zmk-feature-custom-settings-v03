@@ -501,8 +501,10 @@ static struct led_rgb corne_blend_rgb(struct led_rgb base, struct led_rgb over, 
 }
 
 static uint8_t corne_reactive_distance(int8_t ax, int8_t ay, int8_t bx, int8_t by) {
-    uint8_t dx = (uint8_t)ABS((int16_t)ax - (int16_t)bx);
-    uint8_t dy = (uint8_t)ABS((int16_t)ay - (int16_t)by);
+    int16_t dx_signed = (int16_t)ax - (int16_t)bx;
+    int16_t dy_signed = (int16_t)ay - (int16_t)by;
+    uint8_t dx = (uint8_t)(dx_signed < 0 ? -dx_signed : dx_signed);
+    uint8_t dy = (uint8_t)(dy_signed < 0 ? -dy_signed : dy_signed);
     uint8_t hi = MAX(dx, dy);
     uint8_t lo = MIN(dx, dy);
     return (uint8_t)(hi + lo / 2U);
