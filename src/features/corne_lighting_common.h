@@ -34,6 +34,8 @@
 
 #define CORNE_FRONT_LED_FIRST 6U
 #define CORNE_FRONT_LED_COUNT 21U
+#define CORNE_REAR_LED_FIRST 0U
+#define CORNE_REAR_LED_COUNT CORNE_FRONT_LED_FIRST
 #define CORNE_REACTIVE_MAX_RIPPLES 6U
 #define CORNE_REACTIVE_MAX_DISTANCE 70U
 
@@ -53,6 +55,11 @@ struct corne_lighting_config {
     uint16_t reactive_travel_ms;
     uint8_t reactive_width;
     uint16_t reactive_fade_ms;
+
+    uint8_t front_effect;
+    uint32_t front_color;
+    uint8_t front_brightness;
+    uint16_t front_period_ms;
 
     bool layer_enabled;
     uint8_t layer_mode; /* 0 = while active, 1 = flash on change */
@@ -77,6 +84,7 @@ struct corne_reactive_ripple {
     bool active;
     int8_t x;
     int8_t y;
+    uint8_t hue_seed;
     int64_t started;
 };
 
@@ -149,6 +157,26 @@ static struct led_rgb corne_packed_to_rgb(uint32_t packed, uint8_t brightness, u
 }
 
 static void corne_clear_pixels(void) { memset(corne_lighting_pixels, 0, sizeof(corne_lighting_pixels)); }
+
+static void corne_clear_range(size_t first, size_t count) {
+    if (first >= CORNE_LIGHTING_LED_COUNT) {
+        return;
+    }
+    count = MIN(count, CORNE_LIGHTING_LED_COUNT - first);
+    memset(&corne_lighting_pixels[first], 0, count * sizeof(corne_lighting_pixels[0]));
+}
+
+static void corne_render_range_solid(size_t first, size_t count, uint32_t color,
+                                     uint8_t brightness, uint8_t level) {
+    if (first >= CORNE_LIGHTING_LED_COUNT) {
+        return;
+    }
+    count = MIN(count, CORNE_LIGHTING_LED_COUNT - first);
+    struct led_rgb rgb = corne_packed_to_rgb(color, brightness, level, 0);
+    for (size_t i = first; i < first + count; i++) {
+        corne_lighting_pixels[i] = rgb;
+    }
+}
 
 static void corne_reset_ambient_state(void) {
     memset(corne_fireflies, 0, sizeof(corne_fireflies));
@@ -508,7 +536,7 @@ static int8_t corne_position_to_front(uint32_t position, bool right_half) {
 }
 
 static void corne_reactive_trigger(uint32_t position, bool right_half) {
-    if (corne_lighting_cfg.ambient_effect != CORNE_AMBIENT_REACTIVE_RIPPLE) {
+    if (corne_lighting_cfg.front_effect != CORNE_FRONT_REACTIVE_RAINBOW) {
         return;
     }
 
@@ -535,29 +563,58 @@ static void corne_reactive_trigger(uint32_t position, bool right_half) {
         .active = true,
         .x = corne_front_led_x[front],
         .y = corne_front_led_y[front],
+        .hue_seed = (uint8_t)((position * 37U + (uint32_t)k_uptime_get_32() / 8U) & 0xffU),
         .started = k_uptime_get(),
     };
 }
 
-static void corne_render_reactive_ripple(int64_t now) {
-    struct led_rgb base =
-        corne_packed_to_rgb(corne_lighting_cfg.reactive_base_color,
-                            corne_lighting_cfg.ambient_brightness, 255, 0);
-    struct led_rgb ripple =
-        corne_packed_to_rgb(corne_lighting_cfg.reactive_ripple_color,
-                            corne_lighting_cfg.ambient_brightness, 255, 0);
+static void corne_render_front_static(void) {
+    corne_render_range_solid(CORNE_FRONT_LED_FIRST, CORNE_FRONT_LED_COUNT,
+                             corne_lighting_cfg.front_color,
+                             corne_lighting_cfg.front_brightness, 255);
+}
 
-    /* Underglow LEDs stay on the base color, matching the reference video. */
-    for (size_t i = 0; i < CORNE_LIGHTING_LED_COUNT; i++) {
-        corne_lighting_pixels[i] = base;
+static void corne_render_front_rainbow_wave(int64_t now) {
+    corne_clear_range(CORNE_FRONT_LED_FIRST, CORNE_FRONT_LED_COUNT);
+    uint32_t period = MAX((uint32_t)corne_lighting_cfg.front_period_ms, 400U);
+    uint8_t base = (uint8_t)(((uint64_t)(now % period) * 256U) / period);
+
+    for (size_t front = 0; front < CORNE_FRONT_LED_COUNT; front++) {
+        size_t strip_index = CORNE_FRONT_LED_FIRST + front;
+        if (strip_index >= CORNE_LIGHTING_LED_COUNT) {
+            break;
+        }
+        uint8_t hue = (uint8_t)(base + ((uint32_t)front * 256U) / CORNE_FRONT_LED_COUNT);
+        corne_lighting_pixels[strip_index] =
+            corne_packed_to_rgb(corne_wheel_color(hue),
+                                corne_lighting_cfg.front_brightness, 255, 0);
+    }
+}
+
+static void corne_render_reactive_ripple(int64_t now) {
+    struct led_rgb idle =
+        corne_packed_to_rgb(corne_lighting_cfg.reactive_base_color,
+                            corne_lighting_cfg.front_brightness, 255, 0);
+
+    for (size_t front = 0; front < CORNE_FRONT_LED_COUNT; front++) {
+        size_t strip_index = CORNE_FRONT_LED_FIRST + front;
+        if (strip_index < CORNE_LIGHTING_LED_COUNT) {
+            corne_lighting_pixels[strip_index] = idle;
+        }
     }
 
     uint16_t travel_ms = MAX(corne_lighting_cfg.reactive_travel_ms, 100U);
     uint16_t fade_ms = MAX(corne_lighting_cfg.reactive_fade_ms, travel_ms);
     uint8_t width = MAX(corne_lighting_cfg.reactive_width, 1U);
+    uint32_t hue_period = MAX((uint32_t)corne_lighting_cfg.front_period_ms, 400U);
 
     for (size_t front = 0; front < CORNE_FRONT_LED_COUNT; front++) {
-        uint16_t alpha_sum = 0U;
+        size_t strip_index = CORNE_FRONT_LED_FIRST + front;
+        if (strip_index >= CORNE_LIGHTING_LED_COUNT) {
+            break;
+        }
+
+        struct led_rgb pixel = idle;
 
         for (size_t r = 0; r < ARRAY_SIZE(corne_reactive_ripples); r++) {
             struct corne_reactive_ripple *wave = &corne_reactive_ripples[r];
@@ -586,15 +643,37 @@ static void corne_render_reactive_ripple(int64_t now) {
 
             uint32_t ring = 255U - (delta * 255U) / width;
             uint32_t fade = 255U - (elapsed * 255U) / fade_ms;
-            uint32_t alpha = (ring * fade) / 255U;
-            alpha_sum = MIN(255U, alpha_sum + alpha);
+            uint8_t alpha = (uint8_t)((ring * fade) / 255U);
+
+            /* The expanding ring carries a rainbow gradient. Distance produces
+             * spatial bands while elapsed time gently rotates the palette. */
+            uint8_t time_hue = (uint8_t)(((uint64_t)(elapsed % hue_period) * 256U) / hue_period);
+            uint8_t hue = (uint8_t)(wave->hue_seed + time_hue + distance * 5U);
+            struct led_rgb rainbow =
+                corne_packed_to_rgb(corne_wheel_color(hue),
+                                    corne_lighting_cfg.front_brightness, 255, 0);
+            pixel = corne_blend_rgb(pixel, rainbow, alpha);
         }
 
-        size_t strip_index = CORNE_FRONT_LED_FIRST + front;
-        if (strip_index < CORNE_LIGHTING_LED_COUNT && alpha_sum > 0U) {
-            corne_lighting_pixels[strip_index] =
-                corne_blend_rgb(base, ripple, (uint8_t)alpha_sum);
-        }
+        corne_lighting_pixels[strip_index] = pixel;
+    }
+}
+
+static void corne_render_front(int64_t now) {
+    switch (corne_lighting_cfg.front_effect) {
+    case CORNE_FRONT_STATIC:
+        corne_render_front_static();
+        break;
+    case CORNE_FRONT_RAINBOW_WAVE:
+        corne_render_front_rainbow_wave(now);
+        break;
+    case CORNE_FRONT_REACTIVE_RAINBOW:
+        corne_render_reactive_ripple(now);
+        break;
+    case CORNE_FRONT_OFF:
+    default:
+        corne_clear_range(CORNE_FRONT_LED_FIRST, CORNE_FRONT_LED_COUNT);
+        break;
     }
 }
 
@@ -630,13 +709,38 @@ static void corne_render_ambient(int64_t now) {
     case CORNE_AMBIENT_ALTERNATING:
         corne_render_alternating(now);
         break;
-    case CORNE_AMBIENT_REACTIVE_RIPPLE:
-        corne_render_reactive_ripple(now);
-        break;
     case CORNE_AMBIENT_FIREFLY:
     default:
         corne_render_fireflies(now);
         break;
+    }
+}
+
+static void corne_render_rear_ambient(int64_t now) {
+    /* Render the existing effect across the virtual full strip, then compress
+     * it into the six rear LEDs. This preserves every existing ambient mode
+     * without making front LEDs participate in the rear animation. */
+    corne_render_ambient(now);
+
+    struct led_rgb rear[CORNE_REAR_LED_COUNT];
+    memset(rear, 0, sizeof(rear));
+
+    for (size_t rear_index = 0; rear_index < CORNE_REAR_LED_COUNT; rear_index++) {
+        size_t start = (rear_index * CORNE_LIGHTING_LED_COUNT) / CORNE_REAR_LED_COUNT;
+        size_t end = ((rear_index + 1U) * CORNE_LIGHTING_LED_COUNT) / CORNE_REAR_LED_COUNT;
+        end = MAX(end, start + 1U);
+        end = MIN(end, CORNE_LIGHTING_LED_COUNT);
+
+        for (size_t src = start; src < end; src++) {
+            rear[rear_index].r = MAX(rear[rear_index].r, corne_lighting_pixels[src].r);
+            rear[rear_index].g = MAX(rear[rear_index].g, corne_lighting_pixels[src].g);
+            rear[rear_index].b = MAX(rear[rear_index].b, corne_lighting_pixels[src].b);
+        }
+    }
+
+    corne_clear_pixels();
+    for (size_t i = 0; i < CORNE_REAR_LED_COUNT && i < CORNE_LIGHTING_LED_COUNT; i++) {
+        corne_lighting_pixels[CORNE_REAR_LED_FIRST + i] = rear[i];
     }
 }
 
@@ -645,30 +749,38 @@ static void corne_render_current_frame(void) {
 
     if (!corne_lighting_cfg.enabled || !device_is_ready(corne_lighting_strip)) {
         corne_clear_pixels();
-    } else if (corne_lighting_cfg.bt_enabled && now < corne_bt_until &&
-               corne_active_bt_profile < ARRAY_SIZE(corne_lighting_cfg.bt_colors)) {
-        uint8_t level = 255;
-        if (corne_lighting_cfg.bt_effect == 1) {
-            level = corne_one_shot_pulse_level(now, corne_bt_started,
-                                               corne_lighting_cfg.bt_duration_ms, 1);
-        } else if (corne_lighting_cfg.bt_effect == 2) {
-            level = corne_one_shot_pulse_level(now, corne_bt_started,
-                                               corne_lighting_cfg.bt_duration_ms, 2);
-        }
-        corne_render_solid(corne_lighting_cfg.bt_colors[corne_active_bt_profile],
-                           corne_lighting_cfg.bt_brightness, level);
-    } else if (corne_lighting_cfg.layer_enabled && corne_lighting_cfg.layer_mode == 1 &&
-               now < corne_layer_flash_until &&
-               corne_active_layer < ARRAY_SIZE(corne_lighting_cfg.layer_colors)) {
-        corne_render_solid(corne_lighting_cfg.layer_colors[corne_active_layer],
-                           corne_lighting_cfg.layer_brightness, 255);
-    } else if (corne_lighting_cfg.layer_enabled && corne_lighting_cfg.layer_mode == 0 &&
-               corne_active_layer > 0 &&
-               corne_active_layer < ARRAY_SIZE(corne_lighting_cfg.layer_colors)) {
-        corne_render_solid(corne_lighting_cfg.layer_colors[corne_active_layer],
-                           corne_lighting_cfg.layer_brightness, 255);
     } else {
-        corne_render_ambient(now);
+        /* Rear and front are composed independently. Layer/Bluetooth status
+         * only overrides the rear LEDs, so per-key effects keep running. */
+        corne_render_rear_ambient(now);
+        corne_render_front(now);
+
+        if (corne_lighting_cfg.layer_enabled &&
+            corne_active_layer < ARRAY_SIZE(corne_lighting_cfg.layer_colors)) {
+            bool show_layer =
+                (corne_lighting_cfg.layer_mode == 1 && now < corne_layer_flash_until) ||
+                (corne_lighting_cfg.layer_mode == 0 && corne_active_layer > 0);
+            if (show_layer) {
+                corne_render_range_solid(CORNE_REAR_LED_FIRST, CORNE_REAR_LED_COUNT,
+                                         corne_lighting_cfg.layer_colors[corne_active_layer],
+                                         corne_lighting_cfg.layer_brightness, 255);
+            }
+        }
+
+        if (corne_lighting_cfg.bt_enabled && now < corne_bt_until &&
+            corne_active_bt_profile < ARRAY_SIZE(corne_lighting_cfg.bt_colors)) {
+            uint8_t level = 255;
+            if (corne_lighting_cfg.bt_effect == 1) {
+                level = corne_one_shot_pulse_level(now, corne_bt_started,
+                                                   corne_lighting_cfg.bt_duration_ms, 1);
+            } else if (corne_lighting_cfg.bt_effect == 2) {
+                level = corne_one_shot_pulse_level(now, corne_bt_started,
+                                                   corne_lighting_cfg.bt_duration_ms, 2);
+            }
+            corne_render_range_solid(CORNE_REAR_LED_FIRST, CORNE_REAR_LED_COUNT,
+                                     corne_lighting_cfg.bt_colors[corne_active_bt_profile],
+                                     corne_lighting_cfg.bt_brightness, level);
+        }
     }
 
     int rc = led_strip_update_rgb(corne_lighting_strip, corne_lighting_pixels,
@@ -699,11 +811,15 @@ static void corne_lighting_set_defaults(void) {
         .firefly_interval_ms = 900,
         .firefly_fade_ms = 1600,
         .firefly_variation = 18,
-        .reactive_base_color = 0xFF3010,
+        .reactive_base_color = 0x000000,
         .reactive_ripple_color = 0x00D8FF,
         .reactive_travel_ms = 650,
         .reactive_width = 13,
         .reactive_fade_ms = 1200,
+        .front_effect = CORNE_FRONT_REACTIVE_RAINBOW,
+        .front_color = 0x40DFFF,
+        .front_brightness = 30,
+        .front_period_ms = 1800,
         .layer_enabled = true,
         .layer_mode = 0,
         .layer_duration_ms = 500,
