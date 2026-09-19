@@ -20,3 +20,10 @@
 #define CORNE_AMBIENT_REACTIVE_RIPPLE 11
 
 #define CORNE_AMBIENT_MODE_COUNT 12
+
+/* Front/per-key LED modes. Keep these IDs stable for persisted settings. */
+#define CORNE_FRONT_OFF 0
+#define CORNE_FRONT_STATIC 1
+#define CORNE_FRONT_RAINBOW_WAVE 2
+#define CORNE_FRONT_REACTIVE_RAINBOW 3
+#define CORNE_FRONT_MODE_COUNT 4
